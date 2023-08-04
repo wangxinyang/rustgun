@@ -1,6 +1,6 @@
 use std::io::StdoutLock;
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,9 +15,6 @@ struct Message {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Body {
-    #[serde(rename = "type")]
-    ty: String,
-
     #[serde(rename = "msg_id")]
     id: Option<usize>,
 
@@ -28,10 +25,20 @@ struct Body {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 enum Payload {
-    Echo { echo: String },
-    EchoOk { echo: String },
+    Echo {
+        echo: String,
+    },
+    EchoOk {
+        echo: String,
+    },
+    Init {
+        node_id: String,
+        node_ids: Vec<String>,
+    },
+    InitOk,
 }
 
 struct EchoNode {
@@ -45,12 +52,26 @@ impl EchoNode {
         output: &mut serde_json::Serializer<StdoutLock>,
     ) -> anyhow::Result<()> {
         match input.body.payload {
+            Payload::Init { .. } => {
+                let reply = Message {
+                    src: input.dst,
+                    dst: input.src,
+                    body: Body {
+                        id: Some(self.id),
+                        in_reply_to: input.body.id,
+                        payload: Payload::InitOk,
+                    },
+                };
+                reply
+                    .serialize(output)
+                    .context("serialize response to init")?;
+                self.id += 1;
+            }
             Payload::Echo { echo } => {
                 let reply = Message {
                     src: input.dst,
                     dst: input.src,
                     body: Body {
-                        ty: "reply".to_string(),
                         id: Some(self.id),
                         in_reply_to: input.body.id,
                         payload: Payload::Echo { echo },
@@ -61,7 +82,8 @@ impl EchoNode {
                     .context("serialize response to echo")?;
                 self.id += 1;
             }
-            _ => {}
+            Payload::EchoOk { .. } => {}
+            Payload::InitOk { .. } => bail!("received init_ok message"),
         }
         Ok(())
     }
