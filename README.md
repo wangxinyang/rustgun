@@ -1,2 +1,4 @@
 # rustgun
-a distributed system code challenge by use Rust
+The [fly.io distributed systems challenges](https://fly.io/dist-sys/) solved in Rust.
+
+Clone the code from [github](https://github.com/jonhoo/rustengan)

@@ -1,4 +1,5 @@
 use std::io::StdoutLock;
+use std::io::Write;
 
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
@@ -46,11 +47,7 @@ struct EchoNode {
 }
 
 impl EchoNode {
-    pub fn step(
-        &mut self,
-        input: Message,
-        output: &mut serde_json::Serializer<StdoutLock>,
-    ) -> anyhow::Result<()> {
+    pub fn step(&mut self, input: Message, output: &mut StdoutLock) -> anyhow::Result<()> {
         match input.body.payload {
             Payload::Init { .. } => {
                 let reply = Message {
@@ -62,9 +59,9 @@ impl EchoNode {
                         payload: Payload::InitOk,
                     },
                 };
-                reply
-                    .serialize(output)
+                serde_json::to_writer(&mut *output, &reply)
                     .context("serialize response to init")?;
+                output.write_all(b"\n").context("write trailing newline")?;
                 self.id += 1;
             }
             Payload::Echo { echo } => {
@@ -74,12 +71,12 @@ impl EchoNode {
                     body: Body {
                         id: Some(self.id),
                         in_reply_to: input.body.id,
-                        payload: Payload::Echo { echo },
+                        payload: Payload::EchoOk { echo },
                     },
                 };
-                reply
-                    .serialize(output)
-                    .context("serialize response to echo")?;
+                serde_json::to_writer(&mut *output, &reply)
+                    .context("serialize response to init")?;
+                output.write_all(b"\n").context("write trailing newline")?;
                 self.id += 1;
             }
             Payload::EchoOk { .. } => {}
@@ -93,13 +90,12 @@ fn main() -> anyhow::Result<()> {
     let stdin = std::io::stdin().lock();
     let inputs = serde_json::Deserializer::from_reader(stdin).into_iter::<Message>();
 
-    let stdout = std::io::stdout().lock();
-    let mut output = serde_json::Serializer::new(stdout);
+    let mut stdout = std::io::stdout().lock();
 
     let mut node = EchoNode { id: 0 };
     for input in inputs {
         let input = input.context("input from STDIN could not be deserialized")?;
-        node.step(input, &mut output)
+        node.step(input, &mut stdout)
             .context("Node step function failed")?;
     }
 
